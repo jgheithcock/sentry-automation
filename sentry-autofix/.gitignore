@@ -1,0 +1,6 @@
+.env
+work/
+logs/
+__pycache__/
+*.pyc
+.autofix.lock
