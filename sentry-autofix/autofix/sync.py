@@ -39,6 +39,28 @@ def issue_body(sentry_issue: dict, stacktrace: str, code_path: str = "") -> str:
     )
 
 
+def is_regression(filed: dict | None, resolved_label: str) -> bool:
+    """A Sentry issue we resolved is being seen (unresolved) again."""
+    return bool(filed) and filed["state"] == "closed" and resolved_label in filed["labels"]
+
+
+def reopen_regression(cfg: Config, repo: str, filed: dict, short_id: str,
+                      dry_run: bool) -> None:
+    number, L = filed["number"], cfg.labels
+    if dry_run:
+        log.info("[dry-run] would reopen %s#%d: %s regressed in Sentry", repo, number, short_id)
+        return
+    ghc.reopen(repo, number)
+    ghc.set_labels(repo, number,
+                   add=[L["queued"]] if cfg.auto_queue else [],
+                   remove=[L["resolved"], L["pr_open"], L["needs_human"], L["in_progress"]])
+    ghc.comment(repo, number,
+                f"Sentry reports {short_id} again after it was resolved (regressed in a "
+                f"later release). Reopened"
+                + (" and queued for the fix agent." if cfg.auto_queue else "."))
+    log.info("reopened %s#%d: %s regressed", repo, number, short_id)
+
+
 def run(cfg: Config, dry_run: bool = False) -> int:
     sentry = SentryClient(cfg)
     created = 0
@@ -46,7 +68,9 @@ def run(cfg: Config, dry_run: bool = False) -> int:
         repo = project.github_repo
         if not dry_run:
             ghc.ensure_labels(repo, [cfg.source_label, *cfg.labels.values()])
-        known = ghc.existing_short_ids(repo, cfg.source_label)
+        filed = {sid: i for i in ghc.filed_issues(repo, cfg.source_label)
+                 if (sid := ghc.short_id_from_title(i["title"]))}
+        known = set(filed)
         issues = sentry.new_issues(project.sentry_project)
         log.info(
             "%s: %d Sentry issue(s), %d already filed in %s",
@@ -64,6 +88,9 @@ def run(cfg: Config, dry_run: bool = False) -> int:
         )
         for si in issues:
             if si["shortId"] in known:
+                if is_regression(filed.get(si["shortId"]), cfg.labels["resolved"]):
+                    reopen_regression(cfg, repo, filed[si["shortId"]], si["shortId"], dry_run)
+                    filed.pop(si["shortId"])  # once per run, even if two projects share a repo
                 continue
             title = issue_title(si)
             body = issue_body(

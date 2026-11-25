@@ -61,6 +61,21 @@ class SentryClient:
         return web_search_url(self.cfg.sentry_api_base, self.cfg.sentry_org, project,
                               self.search_terms(), self.cfg.last_seen_within)
 
+    def resolve_in_next_release(self, issue_id: str) -> None:
+        """Mark resolved as of the project's next release (needs event:write).
+
+        Events from the current release don't reopen it; an event from a later
+        release marks it regressed, which sync picks up.
+        """
+        url = f"{self.cfg.sentry_api_base}/organizations/{self.cfg.sentry_org}/issues/{issue_id}/"
+        req = urllib.request.Request(
+            url, method="PUT", data=json.dumps({"status": "resolvedInNextRelease"}).encode(),
+            headers={"Authorization": f"Bearer {self.cfg.sentry_token}",
+                     "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=60):
+            pass
+
     def latest_event(self, issue_id: str) -> dict:
         url = (
             f"{self.cfg.sentry_api_base}/organizations/{self.cfg.sentry_org}"

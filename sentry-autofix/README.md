@@ -2,17 +2,21 @@
 
 Polls Sentry for new issues, files them as GitHub issues, and runs headless
 Claude Code on each queued issue to write a failing test, fix the bug, and open
-a draft PR. Runs anywhere with `python3`, `gh`, `git` and `claude` installed: a
-laptop for the POC, an EC2 instance in production. No inbound network access
-is needed.
+a draft PR. When the GitHub issue is closed, it marks the Sentry issue resolved
+in the next release. Runs anywhere with `python3`, `gh`, `git` and `claude`
+installed: a laptop for the POC, an EC2 instance in production. No inbound
+network access is needed.
 
 ## How it works
 
 ```
 cron (every 15–60 min) -> bin/run.sh -> `python3 -m autofix all`
-  1. sync: new Sentry issues -> GitHub issues "[SHORT-ID] title",
+  1. resolve: GitHub issues closed as completed -> Sentry issue
+     "resolved in next release", label: autofix:sentry-resolved
+  2. sync: new Sentry issues -> GitHub issues "[SHORT-ID] title",
      labels: sentry, autofix:queued
-  2. run-queue:
+     (a resolved issue that regressed -> GitHub issue reopened and queued)
+  3. run-queue:
       autofix:queued issues -> fresh clone -> `claude -p prompts/fix.md`
       agent comments progress, opens draft PR from claude/issue-N-*,
       labels issue as autofix:pr-open, or needs-human if it can't fix it
@@ -20,13 +24,14 @@ cron (every 15–60 min) -> bin/run.sh -> `python3 -m autofix all`
 
 All state lives in GitHub labels, so there is no local database to migrate.
 
-| Label                 | Meaning                                              |
-| --------------------- | ---------------------------------------------------- |
-| `sentry`              | Created by this tool (used for de-duplication)       |
-| `autofix:queued`      | Waiting for the agent; add by hand to queue an issue |
-| `autofix:in-progress` | Agent is working on it                               |
-| `autofix:pr-open`     | Draft PR opened                                      |
-| `needs-human`         | Agent couldn't fix it, or the run failed             |
+| Label                     | Meaning                                        |
+| ------------------------- | ---------------------------------------------- |
+| `sentry`                  | Created by this tool (used for de-duplication) |
+| `autofix:queued`          | Waiting for the agent; add by hand to queue    |
+| `autofix:in-progress`     | Agent is working on it                         |
+| `autofix:pr-open`         | Draft PR opened                                |
+| `needs-human`             | Agent couldn't fix it, or the run failed       |
+| `autofix:sentry-resolved` | Closed, and the Sentry issue marked resolved   |
 
 ## Configuration
 
@@ -82,10 +87,26 @@ starts there and uses that folder's tests. `doctor` checks that it exists.
    */15 * * * * cd /path/to/sentry-autofix && bin/run.sh >> logs/cron.log 2>&1
    ```
 
-Commands: `python3 -m autofix sync`, `python3 -m autofix run-queue`,
-`python3 -m autofix all`, each with optional `--dry-run`. Logs go to
+Commands: `python3 -m autofix resolve`, `python3 -m autofix sync`,
+`python3 -m autofix run-queue`, `python3 -m autofix all` (all three in that
+order), each with optional `--dry-run`. Logs go to
 `logs/YYYY-MM-DD.log`; each agent run's raw output is saved next to its clone
 in `work/`.
+
+### Closing the loop in Sentry
+
+When a person closes a GitHub issue filed by this tool as completed (or
+merges a PR whose body says `Fixes #N`), the next run marks the Sentry issue
+"resolved in next release" and adds `autofix:sentry-resolved`. Sentry then
+counts the bug as fixed once the next release ships. Issues closed as "not
+planned" are left alone in Sentry.
+
+If the bug comes back in a later release, Sentry marks it regressed and sync
+reopens the GitHub issue, swaps its labels back to `autofix:queued` (when
+`AUTO_QUEUE` is on) and says why in a comment.
+
+The agent's PRs also include `Fixes <SHORT-ID>`, so if your releases send
+commits to Sentry, Sentry resolves the issue from the release itself as well.
 
 ### Seeing what sync searched for
 
@@ -115,7 +136,8 @@ python3 -m unittest discover tests
 3. Create `.env` with that machine's values (the only file that changes):
    - GitHub: token for the bot account or GitHub App (scoped to the target
      repos).
-   - Sentry: internal-integration token (Issue & Event: Read, Project: Read).
+   - Sentry: internal-integration token (Issue & Event: Read & Write,
+     Project: Read). Write is only used to mark issues resolved.
    - Claude: API key, or `CLAUDE_CODE_USE_BEDROCK=1` + `AWS_REGION` with an
      instance IAM role.
 4. Run `python3 -m autofix doctor --full`, then a dry run, then add the cron

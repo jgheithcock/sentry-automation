@@ -44,7 +44,15 @@ you.
    - Commit message: `Fix <short description> (Sentry <SHORT_ID>)`
    - `gh pr create --draft` with title `[<SHORT_ID>] <short description>` and
      a body containing: root cause, the fix, the test added, test results, and
-     `Fixes #<N>`.
+     these two lines at the end:
+     ```
+     Fixes #<N>
+     Fixes <SHORT_ID>
+     ```
+     The first closes the GitHub issue when the PR merges; the second lets
+     Sentry resolve its issue once the fix ships in a release. `<SHORT_ID>` is
+     the Sentry ID in brackets at the start of the issue title (e.g.
+     `BILLING-1A`).
 6. **Finish.** Comment with the PR link. Labels: remove `autofix:in-progress`,
    add `autofix:pr-open`.
 

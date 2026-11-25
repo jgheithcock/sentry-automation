@@ -34,6 +34,8 @@ LABELS = {
     "in_progress": "autofix:in-progress",
     "pr_open": "autofix:pr-open",
     "needs_human": "needs-human",
+    # Added once the closed issue's Sentry issue is marked resolved in next release.
+    "resolved": "autofix:sentry-resolved",
 }
 
 # Max issues the fix agent works on per run (they run one at a time).

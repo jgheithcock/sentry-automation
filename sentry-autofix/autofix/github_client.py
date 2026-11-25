@@ -20,6 +20,7 @@ LABEL_COLORS = {
     "autofix:in-progress": "1d76db",
     "autofix:pr-open": "0e8a16",
     "needs-human": "d93f0b",
+    "autofix:sentry-resolved": "5319e7",
 }
 
 
@@ -60,6 +61,21 @@ def existing_short_ids(repo: str, source_label: str) -> set[str]:
     return {sid for i in issues if (sid := short_id_from_title(i["title"]))}
 
 
+def filed_issues(repo: str, source_label: str, state: str = "all",
+                 with_body: bool = False) -> list[dict]:
+    """Issues filed by sync, with state, state_reason, label names (and body).
+
+    Same REST endpoint (no search lag) as issues_with_label.
+    """
+    fields = "number, title, state, state_reason, labels: [.labels[].name]"
+    if with_body:
+        fields += ", body"
+    query = urllib.parse.urlencode({"labels": source_label, "state": state, "per_page": 100})
+    out = gh("api", "--paginate", f"repos/{repo}/issues?{query}",
+             "--jq", f".[] | select(.pull_request | not) | {{{fields}}} | @json")
+    return [json.loads(line) for line in out.splitlines() if line.strip()]
+
+
 def short_id_from_title(title: str) -> str | None:
     if title.startswith("[") and "]" in title:
         return title[1:title.index("]")]
@@ -86,6 +102,10 @@ def set_labels(repo: str, number: int, add: list[str] = (), remove: list[str] = 
     for label in remove:
         args += ["--remove-label", label]
     gh(*args)
+
+
+def reopen(repo: str, number: int) -> None:
+    gh("issue", "reopen", str(number), "-R", repo)
 
 
 def comment(repo: str, number: int, body: str) -> None:

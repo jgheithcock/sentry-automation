@@ -205,6 +205,7 @@ def check_sentry(r: Report, cfg: config.Config) -> None:
         r.line(FAIL, f"organization {org}", hints.get(status, f"HTTP {status}"))
         return
     r.line(PASS, f"organization {org}", body.get("name", ""))  # type: ignore[union-attr]
+    check_sentry_write(r, cfg)
 
     for project in cfg.projects:
         slug = project.sentry_project
@@ -228,6 +229,33 @@ def check_sentry(r: Report, cfg: config.Config) -> None:
             r.line(FAIL, f"project {slug}",
                    "can't read issues (token needs event:read)" if status == 403
                    else f"issues query HTTP {status}")
+
+
+def sentry_write_problem(scopes: list[str] | None) -> str | None:
+    """Why the token can't resolve issues, or None. scopes=None means unknown."""
+    if scopes is None:
+        return None
+    if "event:write" in scopes or "event:admin" in scopes:
+        return None
+    return ("token can read but not resolve issues; the resolve step needs "
+            "Issue & Event: Read & Write (scope event:write)")
+
+
+def check_sentry_write(r: Report, cfg: config.Config) -> None:
+    """The resolve step marks issues resolved, which needs event:write."""
+    status, root = sentry_get(cfg, "/")
+    scopes = None
+    if status == 200 and isinstance(root, dict):
+        scopes = (root.get("auth") or {}).get("scopes")
+    problem = sentry_write_problem(scopes)
+    if problem:
+        r.line(FAIL, "token can resolve issues", problem)
+    elif scopes is None:
+        r.line(WARN, "token can resolve issues",
+               "couldn't read the token's scopes; make sure it has Issue & Event: "
+               "Read & Write, or the resolve step will fail")
+    else:
+        r.line(PASS, "token can resolve issues", "has event:write")
 
 
 def check_write_access(r: Report, cfg: config.Config) -> None:

@@ -1,4 +1,4 @@
-"""Entry point: python -m autofix {sync,run-queue,all,doctor} [--dry-run | --full]
+"""Entry point: python -m autofix {resolve,sync,run-queue,all,doctor} [--dry-run | --full]
 
 sync/run-queue/all hold a lock so overlapping cron runs exit instead of doubling up.
 """
@@ -11,23 +11,26 @@ import logging
 import sys
 from datetime import date
 
-from . import config, doctor, run_queue, sync
+from . import config, doctor, resolve, run_queue, sync
 
 
 def main() -> int:
     """Run an autofix command and return its process exit code.
 
-    `sync` files new Sentry issues as GitHub issues.
+    `resolve` marks Sentry issues resolved (in next release) when their GitHub
+    issue is closed as completed.
+    `sync` files new Sentry issues as GitHub issues, and reopens ones that
+    regressed after being resolved.
     `run-queue` runs Claude Code on each queued issue.
-    `all` runs sync, then run-queue.
+    `all` runs resolve, sync, then run-queue.
     `doctor` checks the setup and returns 1 when a check fails.
     """
     parser = argparse.ArgumentParser(prog="autofix")
-    parser.add_argument("command", choices=["sync", "run-queue", "all", "doctor"])
+    parser.add_argument("command", choices=["resolve", "sync", "run-queue", "all", "doctor"])
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="sync/run-queue: read from Sentry/GitHub but create, label and run nothing",
+        help="resolve/sync/run-queue: read from Sentry/GitHub but change nothing",
     )
     parser.add_argument(
         "--full",
@@ -59,6 +62,9 @@ def main() -> int:
         return 0
 
     cfg = config.load()
+    if args.command in ("resolve", "all"):
+        resolved = resolve.run(cfg, dry_run=args.dry_run)
+        logging.info("resolve done: %d Sentry issue(s) resolved", resolved)
     if args.command in ("sync", "all"):
         created = sync.run(cfg, dry_run=args.dry_run)
         logging.info("sync done: %d issue(s) created", created)

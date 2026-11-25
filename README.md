@@ -17,6 +17,9 @@ issue labels.
   * The fix-agent runner: works through the queued GitHub issues, fixing
     them and updating each issue (uses
     [`prompts/fix.md`](sentry-autofix/prompts/fix.md))
+  * Resolve: when a GitHub issue is closed as completed, marks its Sentry
+    issue resolved in the next release (and reopens the GitHub issue if the
+    bug comes back)
   * `doctor`: validates the setup and workflow
 * [`sentry-autofix-sandbox/`](sentry-autofix-sandbox/) - A tiny app with a
   planted bug for validating the workflow.
